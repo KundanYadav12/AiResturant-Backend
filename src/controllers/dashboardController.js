@@ -95,20 +95,11 @@ exports.createTable = async (req, res) => {
   }
 
   try {
-    // 1. Create table record first
+    // 1. Create table record (this automatically generates the secure table token and qrCode)
     const table = await Table.create({
       restaurantId,
-      tableNumber,
-      qrCode: '' // will update shortly with the ID
+      tableNumber
     });
-
-    // 2. Generate ordering URL for QR Code
-    // Format: /order/:restaurantId/:tableId
-    const qrUrl = `/order/${restaurantId}/${table.id}`;
-    
-    // Update the QR URL in database
-    await Table.updateQrCode(table.id, qrUrl);
-    table.qrCode = qrUrl;
 
     res.status(201).json(table);
   } catch (error) {

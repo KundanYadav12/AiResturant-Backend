@@ -11,7 +11,7 @@ class User {
     const [rows] = await db.query(
       `SELECT u.*, r.name as restaurant_name 
        FROM users u 
-       JOIN restaurants r ON u.restaurant_id = r.id 
+       LEFT JOIN restaurants r ON u.restaurant_id = r.id 
        WHERE u.id = ?`,
       [id]
     );

@@ -49,10 +49,28 @@ function emitNewOrder(restaurantId, order) {
   }
 }
 
-function emitOrderStatusUpdate(orderId, order) {
+function emitOrderStatusUpdate(orderId, order, eventName = 'ORDER_STATUS_UPDATED') {
   if (io) {
+    // Emit standard updates to the tracking client
     io.to(`order_${orderId}`).emit('ORDER_STATUS_UPDATED', order);
-    console.log(`Real-time: Broadcasted ORDER_STATUS_UPDATED for order_${orderId}`);
+    // Also emit custom status event (ORDER_ACCEPTED, etc.) to room if needed
+    io.to(`order_${orderId}`).emit(eventName, order);
+    console.log(`Real-time: Broadcasted ${eventName} for order_${orderId}`);
+  }
+}
+
+function emitTableRequest(restaurantId, request) {
+  if (io) {
+    let eventName = 'WAITER_REQUEST';
+    if (request.requestType === 'WATER' || request.request_type === 'WATER') {
+      eventName = 'WATER_REQUEST';
+    } else if (request.requestType === 'BILL' || request.request_type === 'BILL') {
+      eventName = 'BILL_REQUEST';
+    }
+    io.to(`restaurant_${restaurantId}`).emit(eventName, request);
+    // Also emit a general TABLE_STATUS_UPDATED event to refresh tables
+    io.to(`restaurant_${restaurantId}`).emit('TABLE_STATUS_UPDATED', request);
+    console.log(`Real-time: Broadcasted ${eventName} to restaurant_${restaurantId}`);
   }
 }
 
@@ -60,5 +78,6 @@ module.exports = {
   init,
   getIo,
   emitNewOrder,
-  emitOrderStatusUpdate
+  emitOrderStatusUpdate,
+  emitTableRequest
 };

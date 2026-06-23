@@ -3,13 +3,14 @@ const router = express.Router();
 const orderController = require('../controllers/orderController');
 const { authenticateToken, requireRole } = require('../middleware/authMiddleware');
 
-// Public routes (used by Customer QR page)
-router.post('/orders', orderController.createOrder);
+// Public customer routes (accessed by secure tokens - no raw IDs exposed)
+router.get('/orders/tables/token/:tableToken', orderController.getTableDetailsByToken);
+router.post('/orders/tables/token/:tableToken/request', orderController.createTableRequest);
 router.post('/orders/chat', orderController.chatWithAI);
-router.get('/orders/tables/:tableId', orderController.getTableDetails);
-router.get('/orders/:id/public', orderController.getOrderById); // Customer checks single order status
+router.post('/orders', orderController.createOrder);
+router.get('/orders/:id/public', orderController.getOrderById); // single order tracking
 
-// Protected routes (used by Manager Dashboard)
+// Manager protected routes
 router.get(
   '/orders',
   authenticateToken,
@@ -21,6 +22,26 @@ router.put(
   authenticateToken,
   requireRole(['OWNER', 'MANAGER']),
   orderController.updateOrderStatus
+);
+
+// Manager dashboard table requests & status tracking
+router.get(
+  '/dashboard/requests',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  orderController.getPendingRequests
+);
+router.put(
+  '/dashboard/requests/:requestId/complete',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  orderController.completeRequest
+);
+router.get(
+  '/dashboard/tables/status',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  orderController.getTableStatuses
 );
 
 module.exports = router;

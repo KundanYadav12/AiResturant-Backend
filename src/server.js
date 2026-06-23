@@ -12,6 +12,7 @@ const authRoutes = require('./routes/authRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const saasRoutes = require('./routes/saasRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api', orderRoutes); // orders routes are prefixed under root api
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/saas', saasRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
