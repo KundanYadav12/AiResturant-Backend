@@ -7,10 +7,39 @@ const { authenticateToken, requireRole } = require('../middleware/authMiddleware
 router.get('/orders/tables/token/:tableToken', orderController.getTableDetailsByToken);
 router.post('/orders/tables/token/:tableToken/request', orderController.createTableRequest);
 router.post('/orders/chat', orderController.chatWithAI);
+
+// Secure ElevenLabs key retrieval (exposes configured ElevenLabs key to client)
+router.get('/elevenlabs-key', (req, res) => {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) {
+    return res.status(500).json({ error: 'ELEVENLABS_API_KEY is not configured in server .env' });
+  }
+  res.json({ key });
+});
 router.post('/orders', orderController.createOrder);
+router.get('/orders/:id/receipt', orderController.downloadReceipt);
 router.get('/orders/:id/public', orderController.getOrderById); // single order tracking
+router.post('/orders/:id/items', orderController.appendOrderItems);
 
 // Manager protected routes
+router.get(
+  '/orders/history',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  orderController.getOrderHistory
+);
+router.get(
+  '/orders/export',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER', 'SUPER_ADMIN']),
+  orderController.exportOrderHistory
+);
+router.put(
+  '/orders/:id/archive',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  orderController.archiveOrder
+);
 router.get(
   '/orders',
   authenticateToken,

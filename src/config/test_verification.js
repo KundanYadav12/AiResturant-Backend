@@ -15,7 +15,7 @@ async function verifyAll() {
 
     // 1. Verify User logins and roles
     console.log('\n[TEST 1] Verifying User Signups & Roles...');
-    const superadmin = await User.findByEmail('superadmin@platform.com');
+    const superadmin = await User.findByEmail('kundanyadav96197@gmail.com');
     console.log(`- Super Admin: ${superadmin ? 'FOUND' : 'MISSING'} (Role: ${superadmin?.role})`);
     
     const owner = await User.findByEmail('owner@bistro.com');

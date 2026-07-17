@@ -26,6 +26,12 @@ function init(server) {
       console.log(`Socket ${socket.id} joined order_${orderId}`);
     });
 
+    // Join room for a specific dining table session (for real-time Vapi cart sync)
+    socket.on('join_table', (tableToken) => {
+      socket.join(`table_${tableToken}`);
+      console.log(`Socket ${socket.id} joined table_${tableToken}`);
+    });
+
     socket.on('disconnect', () => {
       console.log(`Socket client disconnected: ${socket.id}`);
     });
@@ -74,10 +80,18 @@ function emitTableRequest(restaurantId, request) {
   }
 }
 
+function emitCartUpdate(tableToken, cart, assistantResponse) {
+  if (io) {
+    io.to(`table_${tableToken}`).emit('CART_UPDATED', { cart, assistantResponse });
+    console.log(`Real-time: Broadcasted CART_UPDATED for table_${tableToken}`);
+  }
+}
+
 module.exports = {
   init,
   getIo,
   emitNewOrder,
   emitOrderStatusUpdate,
-  emitTableRequest
+  emitTableRequest,
+  emitCartUpdate
 };

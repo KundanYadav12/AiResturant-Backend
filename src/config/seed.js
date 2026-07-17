@@ -1,315 +1,273 @@
-const db = require('./database');
-const bcrypt = require('bcrypt');
+// seed.js — Multi-Tenant SaaS Seed
+// Drops all tables, applies new schema, inserts demo data using model methods
+// that auto-generate prefixed secure IDs (rst_xxx, usr_xxx, tbl_xxx, etc.)
 
-// Helper to generate a secure random token for tables
-function generateTableToken() {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let token = 'tbl_';
-  for (let i = 0; i < 15; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
+const db = require('./database');
+const fs = require('fs');
+const path = require('path');
+const Restaurant = require('../models/Restaurant');
+const User = require('../models/User');
+const Menu = require('../models/Menu');
+const Table = require('../models/Table');
+const Knowledge = require('../models/Knowledge');
+const Order = require('../models/Order');
 
 async function seed() {
-  console.log('Starting database seeding with SaaS updates...');
-  
+  console.log('\n Starting SaaS database seed...\n');
+
   try {
-    // 1. Establish connection and drop all tables to clear out-of-date schema
-    const pool = await db.initializeDatabase();
-    const connection = await pool.getConnection();
+    // 1. Initialize raw connection (no specific DB) to create DB if needed
+    const mysql = require('mysql2/promise');
+    const bootstrapConn = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD,
+      multipleStatements: true,
+    });
+    await bootstrapConn.query(`CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME || 'AIResturant'}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+    await bootstrapConn.query(`USE \`${process.env.DB_NAME || 'AIResturant'}\`;`);
 
-    console.log('Dropping old tables...');
-    await connection.query('SET FOREIGN_KEY_CHECKS = 0');
-    await connection.query(`
-      DROP TABLE IF EXISTS 
-        order_customizations, 
-        order_items, 
-        orders, 
-        table_requests, 
-        menu_item_customizations, 
-        menu_item_ingredients, 
-        ingredients, 
-        faqs, 
-        ai_knowledge, 
-        menu_items, 
-        categories, 
-        tables, 
-        users, 
-        restaurants
+    console.log('Dropping existing tables...');
+    await bootstrapConn.query('SET FOREIGN_KEY_CHECKS = 0');
+    await bootstrapConn.query(`DROP TABLE IF EXISTS
+      audit_logs, ai_usage_logs,
+      order_customizations, order_items, orders,
+      table_requests,
+      menu_item_customizations, menu_item_ingredients, ingredients,
+      faqs, ai_knowledge,
+      menu_items, categories,
+      tables, users, restaurants
     `);
-    await connection.query('SET FOREIGN_KEY_CHECKS = 1');
-    connection.release();
+    await bootstrapConn.query('SET FOREIGN_KEY_CHECKS = 1');
 
-    // 2. Re-initialize database to execute the new schema.sql
+    // Re-create all tables from schema.sql
     console.log('Re-creating tables with new schema...');
-    await db.initializeDatabase();
-    
-    // Get fresh connection
-    const connection2 = await pool.getConnection();
+    const schemaPath = path.join(__dirname, '../../../schema.sql');
+    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+    // Split on semicolons and run each CREATE statement individually
+    const statements = schemaSql
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !s.startsWith('--') && !s.toUpperCase().startsWith('CREATE DATABASE') && !s.toUpperCase().startsWith('USE '));
+    for (const stmt of statements) {
+      await bootstrapConn.query(stmt);
+    }
+    await bootstrapConn.end();
 
-    // 3. Seed Super Admin (Platform Owner)
-    const superadminPassword = await bcrypt.hash('password123', 10);
-    await connection2.query(
-      `INSERT INTO users (restaurant_id, name, email, password, role) 
-       VALUES (NULL, 'Platform Admin', 'superadmin@platform.com', ?, 'SUPER_ADMIN')`,
-      [superadminPassword]
-    );
-    console.log('Seeded Platform Super Admin: superadmin@platform.com / password123');
+    // Now init the pool for the rest of seed
+    console.log('Initializing connection pool...');
+    const pool = await db.initializeDatabase();
 
-    // 4. Seed Restaurant
+    // ── 2. Super Admin ──────────────────────────────────────────────────────────
+    // SUPER_ADMIN has no restaurant_id
+    const superAdmin = await User.create({
+      restaurantId: null,
+      name: 'Kundan Yadav (Platform Owner)',
+      email: 'kundanyadav96197@gmail.com',
+      password: 'KundanAi@1234',   // ← Change after first login
+      role: 'SUPER_ADMIN',
+    });
+    console.log(`✅ Super Admin 1: kundanyadav96197@gmail.com / KundanAi@1234  (id: ${superAdmin.id})`);
+
+    const superAdmin2 = await User.create({
+      restaurantId: null,
+      name: 'Dealup Platform Owner',
+      email: 'dealup24@gmail.com',
+      password: 'Kundan@12',
+      role: 'SUPER_ADMIN',
+    });
+    console.log(`✅ Super Admin 2: dealup24@gmail.com / Kundan@12  (id: ${superAdmin2.id})`);
+
+    // ── 3. Demo Restaurant ──────────────────────────────────────────────────────
+    const restaurant = await Restaurant.create({
+      name: 'Indian Spice Bistro',
+      phone: '+91 98765 43210',
+      email: 'info@spicebistro.com',
+      address: '123 Gourmet Street, Foodie Lane, Delhi',
+    });
+
+    // Upgrade to ACTIVE + PROFESSIONAL plan with 1-year expiry and default voice settings
     const expiryDate = new Date();
-    expiryDate.setFullYear(expiryDate.getFullYear() + 1); // 1 year from now
-    
-    const [restaurantResult] = await connection2.query(
-      `INSERT INTO restaurants (name, phone, email, address, status, subscription_plan, subscription_expires_at) 
-       VALUES ('Indian Spice Bistro', '+91 98765 43210', 'info@spicebistro.com', '123 Gourmet Street, Foodie Lane, Delhi', 'ACTIVE', 'PRO', ?)`,
-      [expiryDate]
-    );
-    const rId = restaurantResult.insertId;
-    console.log(`Seeded Restaurant: Indian Spice Bistro (ID: ${rId})`);
+    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+    await Restaurant.update(restaurant.id, {
+      status: 'ACTIVE',
+      subscription_plan: 'PROFESSIONAL',
+      subscription_expires_at: expiryDate,
+      ai_waiter_enabled: true,
+      voice_interaction_enabled: true,
+      continuous_voice_enabled: true,
+      greeting_message: "Hello! I am your AI Waiter. What would you like to eat today?",
+      voice_language: 'en-IN',
+      voice_gender: 'female',
+      voice_speed: 1.00,
+      auto_listening_timeout: 5,
+      wake_word: '',
+      // Vapi Premium Voice (platform-owner controlled)
+      vapi_enabled: false,           // Enable via Super Admin dashboard only
+      vapi_assistant_id: '',         // Set via Super Admin when vapi_enabled = true
+      voice_provider: 'browser',     // 'browser' | 'vapi'
+      voice_volume: 1.00,
+      inactivity_timeout: 30,        // seconds of silence before auto-end
+      max_voice_minutes_per_day: 60, // 0 = unlimited
+      order_display_format: 'POS_STYLE'
+    });
+    console.log(`✅ Restaurant: ${restaurant.name}  (id: ${restaurant.id})`);
 
-    // 5. Seed Restaurant Users (Owner & Manager)
-    const ownerPassword = await bcrypt.hash('password123', 10);
-    const managerPassword = await bcrypt.hash('password123', 10);
+    // ── 4. Restaurant Users ─────────────────────────────────────────────────────
+    const owner = await User.create({
+      restaurantId: restaurant.id,
+      name: 'Kundan Owner',
+      email: 'owner@bistro.com',
+      password: 'password123',
+      role: 'OWNER',
+    });
+    const manager = await User.create({
+      restaurantId: restaurant.id,
+      name: 'Kundan Manager',
+      email: 'manager@bistro.com',
+      password: 'password123',
+      role: 'MANAGER',
+    });
+    console.log(`✅ Owner:   owner@bistro.com / password123  (id: ${owner.id})`);
+    console.log(`✅ Manager: manager@bistro.com / password123  (id: ${manager.id})`);
 
-    await connection2.query(
-      `INSERT INTO users (restaurant_id, name, email, password, role) 
-       VALUES (?, 'Kundan Owner', 'owner@bistro.com', ?, 'OWNER')`,
-      [rId, ownerPassword]
-    );
-    await connection2.query(
-      `INSERT INTO users (restaurant_id, name, email, password, role) 
-       VALUES (?, 'Kundan Manager', 'manager@bistro.com', ?, 'MANAGER')`,
-      [rId, managerPassword]
-    );
-    console.log('Seeded Users: owner@bistro.com / password123, manager@bistro.com / password123');
-
-    // 6. Seed Tables with Secure Tokens
-    const tableIds = [];
-    const tableTokens = [];
+    // ── 5. Tables ───────────────────────────────────────────────────────────────
+    const tables = [];
     for (let i = 1; i <= 5; i++) {
-      const token = generateTableToken();
-      const qrCode = `/order/${token}`;
-      const [tableResult] = await connection2.query(
-        `INSERT INTO tables (restaurant_id, table_number, table_token, qr_code, status) VALUES (?, ?, ?, ?, 'FREE')`,
-        [rId, `Table ${i}`, token, qrCode]
-      );
-      tableIds.push(tableResult.insertId);
-      tableTokens.push(token);
+      const t = await Table.create({ restaurantId: restaurant.id, tableNumber: `Table ${i}` });
+      tables.push(t);
     }
-    console.log(`Seeded 5 Tables with secure table tokens.`);
+    console.log(`✅ Created 5 tables. Tokens: ${tables.map((t) => t.tableToken).join(', ')}`);
 
-    // 7. Seed Categories
-    const categories = ['Starters', 'Mains', 'Drinks', 'Desserts'];
-    const categoryIds = {};
-    for (const catName of categories) {
-      const [catResult] = await connection2.query(
-        `INSERT INTO categories (restaurant_id, name) VALUES (?, ?)`,
-        [rId, catName]
-      );
-      categoryIds[catName] = catResult.insertId;
+    // ── 6. Categories ───────────────────────────────────────────────────────────
+    const catNames = ['Starters', 'Mains', 'Drinks', 'Desserts'];
+    const categories = {};
+    for (const name of catNames) {
+      const cat = await Menu.createCategory({ restaurantId: restaurant.id, name });
+      categories[name] = cat;
     }
-    console.log('Seeded Categories: Starters, Mains, Drinks, Desserts');
+    console.log(`✅ Categories: ${catNames.join(', ')}`);
 
-    // 8. Seed Menu Items
-    const menuItems = [
-      {
-        cat: 'Starters',
-        name: 'Paneer Tikka',
-        desc: 'Spicy grilled cottage cheese chunks with bell peppers and onions',
-        price: 249.00
-      },
-      {
-        cat: 'Starters',
-        name: 'Hara Bhara Kabab',
-        desc: 'Deep fried patties made of spinach, peas and potatoes',
-        price: 189.00
-      },
-      {
-        cat: 'Mains',
-        name: 'Butter Chicken',
-        desc: 'Rich creamy tomato gravy with charcoal-grilled chicken tikka pieces',
-        price: 379.00
-      },
-      {
-        cat: 'Mains',
-        name: 'Dal Makhani',
-        desc: 'Slow cooked black lentils with kidney beans, cream and white butter',
-        price: 299.00
-      },
-      {
-        cat: 'Mains',
-        name: 'Garlic Naan',
-        desc: 'Clay oven baked flatbread with chopped garlic and butter brushing',
-        price: 59.00
-      },
-      {
-        cat: 'Mains',
-        name: 'Jeera Rice',
-        desc: 'Basmati rice tempered with cumin seeds and fresh ghee',
-        price: 149.00
-      },
-      {
-        cat: 'Drinks',
-        name: 'Coke',
-        desc: 'Chilled carbonated Coca Cola can (330ml)',
-        price: 49.00
-      },
-      {
-        cat: 'Drinks',
-        name: 'Masala Shikanji',
-        desc: 'Traditional Indian lemonade with roasted cumin and black salt spices',
-        price: 79.00
-      },
-      {
-        cat: 'Desserts',
-        name: 'Gulab Jamun',
-        desc: 'Warm milk dumplings soaked in cardamom infused sugar syrup (2 Pcs)',
-        price: 89.00
-      },
-      {
-        cat: 'Desserts',
-        name: 'Kesari Rasmalai',
-        desc: 'Spongy cottage cheese patties soaked in saffron milk syrup (2 Pcs)',
-        price: 119.00
-      }
+    // ── 7. Menu Items ───────────────────────────────────────────────────────────
+    const menuItemData = [
+      { cat: 'Starters', name: 'Paneer Tikka',     price: 249, desc: 'Spicy grilled cottage cheese with bell peppers and onions' },
+      { cat: 'Starters', name: 'Hara Bhara Kabab', price: 189, desc: 'Deep fried patties of spinach, peas and potatoes' },
+      { cat: 'Mains',    name: 'Butter Chicken',   price: 379, desc: 'Rich creamy tomato gravy with charcoal-grilled chicken tikka' },
+      { cat: 'Mains',    name: 'Dal Makhani',      price: 299, desc: 'Slow cooked black lentils with kidney beans, cream and white butter' },
+      { cat: 'Mains',    name: 'Garlic Naan',      price: 59,  desc: 'Clay oven flatbread with chopped garlic and butter' },
+      { cat: 'Mains',    name: 'Jeera Rice',       price: 149, desc: 'Basmati rice tempered with cumin seeds and fresh ghee' },
+      { cat: 'Drinks',   name: 'Coke',             price: 49,  desc: 'Chilled carbonated Coca Cola can (330ml)' },
+      { cat: 'Drinks',   name: 'Masala Shikanji',  price: 79,  desc: 'Traditional Indian lemonade with roasted cumin and black salt' },
+      { cat: 'Desserts', name: 'Gulab Jamun',      price: 89,  desc: 'Warm milk dumplings in cardamom sugar syrup (2 Pcs)' },
+      { cat: 'Desserts', name: 'Kesari Rasmalai',  price: 119, desc: 'Cottage cheese patties in saffron milk syrup (2 Pcs)' },
     ];
-
-    const itemIds = {};
-    for (const item of menuItems) {
-      const [itemResult] = await connection2.query(
-        `INSERT INTO menu_items (restaurant_id, category_id, name, description, price, image, is_active) 
-         VALUES (?, ?, ?, ?, ?, NULL, TRUE)`,
-        [rId, categoryIds[item.cat], item.name, item.desc, item.price]
-      );
-      itemIds[item.name] = { id: itemResult.insertId, price: item.price };
+    const items = {};
+    for (const data of menuItemData) {
+      const item = await Menu.createMenuItem({
+        restaurantId: restaurant.id,
+        categoryId: categories[data.cat].id,
+        name: data.name,
+        description: data.desc,
+        price: data.price,
+      });
+      items[data.name] = item;
     }
-    console.log('Seeded Menu Items.');
+    console.log(`✅ Seeded ${menuItemData.length} menu items`);
 
-    // 9. Seed Ingredients
-    const ingredientNames = ['Paneer', 'Chicken', 'Lentils', 'Garlic', 'Onion', 'Cashews', 'Cream', 'Spinach', 'Cardamom', 'Milk', 'Saffron'];
-    const ingredientIds = {};
-    for (const name of ingredientNames) {
-      const [ingResult] = await connection2.query(
-        `INSERT INTO ingredients (restaurant_id, name) VALUES (?, ?)`,
-        [rId, name]
-      );
-      ingredientIds[name] = ingResult.insertId;
+    // ── 8. Ingredients ──────────────────────────────────────────────────────────
+    const ingNames = ['Paneer', 'Chicken', 'Lentils', 'Garlic', 'Onion', 'Cashews', 'Cream', 'Spinach', 'Cardamom', 'Milk', 'Saffron'];
+    const ings = {};
+    for (const name of ingNames) {
+      const ing = await Knowledge.createIngredient(restaurant.id, name);
+      ings[name] = ing;
     }
-    console.log('Seeded Ingredients list.');
+    await Knowledge.linkMenuItemIngredients(items['Paneer Tikka'].id, [
+      { ingredientId: ings['Paneer'].id, isAllergen: false },
+      { ingredientId: ings['Onion'].id,  isAllergen: false },
+      { ingredientId: ings['Garlic'].id, isAllergen: false },
+    ]);
+    await Knowledge.linkMenuItemIngredients(items['Butter Chicken'].id, [
+      { ingredientId: ings['Chicken'].id, isAllergen: false },
+      { ingredientId: ings['Milk'].id,    isAllergen: true },
+      { ingredientId: ings['Cashews'].id, isAllergen: true },
+    ]);
+    await Knowledge.linkMenuItemIngredients(items['Dal Makhani'].id, [
+      { ingredientId: ings['Lentils'].id, isAllergen: false },
+      { ingredientId: ings['Milk'].id,    isAllergen: true },
+    ]);
+    await Knowledge.linkMenuItemIngredients(items['Kesari Rasmalai'].id, [
+      { ingredientId: ings['Milk'].id,    isAllergen: true },
+      { ingredientId: ings['Saffron'].id, isAllergen: false },
+    ]);
+    console.log('✅ Seeded ingredients & allergen links');
 
-    // Link menu items to ingredients (Allergen definitions)
-    // Paneer Tikka -> Paneer (No Allergen), Onion (No), Garlic (No)
-    await connection2.query(
-      `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, is_allergen) VALUES 
-       (?, ?, FALSE), (?, ?, FALSE), (?, ?, FALSE)`,
-      [itemIds['Paneer Tikka'].id, ingredientIds['Paneer'], itemIds['Paneer Tikka'].id, ingredientIds['Onion'], itemIds['Paneer Tikka'].id, ingredientIds['Garlic']]
+    // ── 9. Customizations ───────────────────────────────────────────────────────
+    await Knowledge.createCustomization(items['Paneer Tikka'].id,   'Extra Cheese', 30);
+    await Knowledge.createCustomization(items['Paneer Tikka'].id,   'Less Spicy',   0);
+    await Knowledge.createCustomization(items['Butter Chicken'].id, 'Double Chicken', 100);
+    await Knowledge.createCustomization(items['Butter Chicken'].id, 'Extra Butter',   20);
+    await Knowledge.createCustomization(items['Gulab Jamun'].id,    'Extra Cardamom Syrup', 0);
+    console.log('✅ Seeded customizations');
+
+    // ── 10. FAQs ────────────────────────────────────────────────────────────────
+    await Knowledge.createFAQ(restaurant.id, 'Is the Butter Chicken sweet?',
+      'Yes, it is prepared in a rich, creamy tomato-based gravy which has a mildly sweet profile.');
+    await Knowledge.createFAQ(restaurant.id, 'Can we get Jain options?',
+      'Yes, our Paneer Tikka and Dal Makhani can be prepared Jain style (without onion and garlic).');
+    await Knowledge.createFAQ(restaurant.id, 'Do you use pure Ghee?',
+      'Yes, all mains and desserts are prepared using organic pure cow ghee.');
+    console.log('✅ Seeded FAQs');
+
+    // ── 11. AI Knowledge Base ───────────────────────────────────────────────────
+    await Knowledge.saveGeneralKnowledge(
+      restaurant.id,
+      `Our kitchen follows strict hygiene standards and uses clean RO water.
+We do not add artificial MSG or coloring agents.
+If you have a severe nut allergy, note that Butter Chicken contains cashew paste.
+You can call the waiter, request water, or request your bill using the dashboard buttons at any time.`
     );
+    console.log('✅ Seeded AI Knowledge Base');
 
-    // Butter Chicken -> Chicken (No), Butter/Cream (Milk - Allergen!), Cashews (Allergen!)
-    await connection2.query(
-      `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, is_allergen) VALUES 
-       (?, ?, FALSE), (?, ?, TRUE), (?, ?, TRUE)`,
-      [itemIds['Butter Chicken'].id, ingredientIds['Chicken'], itemIds['Butter Chicken'].id, ingredientIds['Milk'], itemIds['Butter Chicken'].id, ingredientIds['Cashews']]
-    );
+    // ── 12. Sample Orders ────────────────────────────────────────────────────────
+    const order1Id = await Order.create({
+      restaurantId: restaurant.id,
+      tableId: tables[0].id,
+      totalAmount: 607,
+      notes: 'Less spicy',
+      items: [
+        { menu_item_id: items['Paneer Tikka'].id,  name: 'Paneer Tikka',  quantity: 1, price: 249, customizations: [] },
+        { menu_item_id: items['Dal Makhani'].id,   name: 'Dal Makhani',   quantity: 1, price: 299, customizations: [] },
+        { menu_item_id: items['Garlic Naan'].id,   name: 'Garlic Naan',   quantity: 1, price: 59,  customizations: [] },
+      ],
+    });
+    await db.query("UPDATE orders SET status = 'DELIVERED', created_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?", [order1Id]);
 
-    // Dal Makhani -> Lentils (No), Cream (Milk - Allergen!)
-    await connection2.query(
-      `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, is_allergen) VALUES 
-       (?, ?, FALSE), (?, ?, TRUE)`,
-      [itemIds['Dal Makhani'].id, ingredientIds['Lentils'], itemIds['Dal Makhani'].id, ingredientIds['Milk']]
-    );
+    const order2Id = await Order.create({
+      restaurantId: restaurant.id,
+      tableId: tables[1].id,
+      totalAmount: 387,
+      notes: 'Extra sweet',
+      items: [
+        { menu_item_id: items['Dal Makhani'].id, name: 'Dal Makhani', quantity: 1, price: 299, customizations: [] },
+        { menu_item_id: items['Gulab Jamun'].id, name: 'Gulab Jamun', quantity: 1, price: 89,  customizations: ['Extra Cardamom Syrup'] },
+      ],
+    });
+    console.log(`✅ Seeded 2 sample orders: ${order1Id}, ${order2Id}`);
 
-    // Kesari Rasmalai -> Milk (Allergen!), Saffron (No), Cardamom (No)
-    await connection2.query(
-      `INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, is_allergen) VALUES 
-       (?, ?, TRUE), (?, ?, FALSE)`,
-      [itemIds['Kesari Rasmalai'].id, ingredientIds['Milk'], itemIds['Kesari Rasmalai'].id, ingredientIds['Saffron']]
-    );
-
-    console.log('Mapped Menu Items to Ingredients and flagged allergens.');
-
-    // 10. Seed Customizations
-    // Paneer Tikka -> Extra Cheese (+30.00), Less Spicy (+0.00)
-    await connection2.query(
-      `INSERT INTO menu_item_customizations (menu_item_id, name, price) VALUES (?, 'Extra Cheese', 30.00), (?, 'Less Spicy', 0.00)`,
-      [itemIds['Paneer Tikka'].id, itemIds['Paneer Tikka'].id]
-    );
-
-    // Butter Chicken -> Double Chicken (+100.00), Extra Butter (+20.00)
-    await connection2.query(
-      `INSERT INTO menu_item_customizations (menu_item_id, name, price) VALUES (?, 'Double Chicken', 100.00), (?, 'Extra Butter', 20.00)`,
-      [itemIds['Butter Chicken'].id, itemIds['Butter Chicken'].id]
-    );
-
-    // Gulab Jamun -> Extra Cardamom Syrup (+0.00)
-    await connection2.query(
-      `INSERT INTO menu_item_customizations (menu_item_id, name, price) VALUES (?, 'Extra Cardamom Syrup', 0.00)`,
-      [itemIds['Gulab Jamun'].id]
-    );
-
-    console.log('Seeded Menu Item Customizations.');
-
-    // 11. Seed FAQs
-    const faqs = [
-      { q: 'Is the Butter Chicken sweet?', a: 'Yes, it is prepared in a rich, creamy, tomato-based gravy which has a mildly sweet profile.' },
-      { q: 'Can we get Jain options?', a: 'Yes, our Paneer Tikka and Dal Makhani can be prepared in Jain style (without onion and garlic). Please specify this in your customization or chat instructions.' },
-      { q: 'Do you use pure Ghee?', a: 'Yes, all of our mains and desserts are prepared using organic pure cow ghee.' }
-    ];
-
-    for (const faq of faqs) {
-      await connection2.query(
-        `INSERT INTO faqs (restaurant_id, question, answer) VALUES (?, ?, ?)`,
-        [rId, faq.q, faq.a]
-      );
-    }
-    console.log('Seeded FAQs.');
-
-    // 12. Seed AI Knowledge Base
-    const generalKnowledge = `Our kitchen follows strict hygiene standards. We use clean RO water for cooking all food items.
-We do not add any artificial MSG or coloring agents to our dishes. 
-If you have any severe nut allergy, please note that our gravies (especially Butter Chicken) contain cashew paste.
-We have table calling system. You can call the waiter, request water, or request your bill directly from the dashboard buttons at any time.`;
-
-    await connection2.query(
-      `INSERT INTO ai_knowledge (restaurant_id, content) VALUES (?, ?)`,
-      [rId, generalKnowledge]
-    );
-    console.log('Seeded general AI Knowledge Base text.');
-
-    // 13. Seed Past Orders
-    // Order 1: Yesterday
-    const [order1] = await connection2.query(
-      `INSERT INTO orders (restaurant_id, table_id, status, total_amount, notes, created_at) 
-       VALUES (?, ?, 'DELIVERED', 607.00, 'Less spicy', DATE_SUB(NOW(), INTERVAL 1 DAY))`,
-      [rId, tableIds[0]]
-    );
-    await connection2.query(
-      `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price) 
-       VALUES (?, ?, 'Paneer Tikka', 1, 249.00), (?, ?, 'Dal Makhani', 1, 299.00), (?, ?, 'Garlic Naan', 1, 59.00)`,
-      [order1.insertId, itemIds['Paneer Tikka'].id, order1.insertId, itemIds['Dal Makhani'].id, order1.insertId, itemIds['Garlic Naan'].id]
-    );
-
-    // Order 2: Today
-    const [order2] = await connection2.query(
-      `INSERT INTO orders (restaurant_id, table_id, status, total_amount, notes, created_at) 
-       VALUES (?, ?, 'PENDING', 387.00, 'Extra sweet gulab jamun', NOW())`,
-      [rId, tableIds[1]]
-    );
-    await connection2.query(
-      `INSERT INTO order_items (order_id, menu_item_id, item_name, quantity, price) 
-       VALUES (?, ?, 'Dal Makhani', 1, 299.00), (?, ?, 'Gulab Jamun', 1, 89.00)`,
-      [order2.insertId, itemIds['Dal Makhani'].id, order2.insertId, itemIds['Gulab Jamun'].id]
-    );
-
-    console.log('Seeded past orders.');
-
-    connection2.release();
-    console.log('Seeding completed successfully!');
+    // ── Done ────────────────────────────────────────────────────────────────────
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎉 Seed completed successfully!\n');
+    console.log('Login Credentials:');
+    console.log('  Super Admin 1: kundanyadav96197@gmail.com / KundanAi@1234');
+    console.log('  Super Admin 2: dealup24@gmail.com / Kundan@12');
+    console.log('  Owner:         owner@bistro.com / password123');
+    console.log('  Manager:       manager@bistro.com / password123');
+    console.log(`\nRestaurant ID: ${restaurant.id}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     process.exit(0);
   } catch (error) {
-    console.error('Seeding failed:', error);
+    console.error('\n❌ Seeding failed:', error.message);
+    console.error(error);
     process.exit(1);
   }
 }

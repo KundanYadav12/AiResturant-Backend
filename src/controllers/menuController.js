@@ -132,6 +132,9 @@ exports.deleteCategory = async (req, res) => {
     res.json({ message: 'Category deleted successfully' });
   } catch (error) {
     console.error('Delete category error:', error);
+    if (error.message.includes('contains menu items')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'Failed to delete category' });
   }
 };
@@ -155,7 +158,7 @@ exports.getMenuItems = async (req, res) => {
 };
 
 exports.createMenuItem = async (req, res) => {
-  const { categoryId, name, description, price, isActive } = req.body;
+  const { categoryId, name, description, price, isActive, isVeg } = req.body;
   const restaurantId = req.user.restaurantId;
 
   if (!categoryId || !name || !price) {
@@ -172,7 +175,8 @@ exports.createMenuItem = async (req, res) => {
       description: description || '',
       price: parseFloat(price),
       image,
-      isActive: isActive === undefined ? true : isActive === 'true' || isActive === true
+      isActive: isActive === undefined ? true : isActive === 'true' || isActive === true,
+      isVeg: isVeg === undefined ? true : isVeg === 'true' || isVeg === true
     });
     res.status(201).json(item);
   } catch (error) {
@@ -183,7 +187,7 @@ exports.createMenuItem = async (req, res) => {
 
 exports.updateMenuItem = async (req, res) => {
   const { id } = req.params;
-  const { categoryId, name, description, price, isActive } = req.body;
+  const { categoryId, name, description, price, isActive, isVeg } = req.body;
 
   if (!categoryId || !name || !price) {
     return res.status(400).json({ error: 'Category ID, name, and price are required' });
@@ -206,7 +210,8 @@ exports.updateMenuItem = async (req, res) => {
       description: description || '',
       price: parseFloat(price),
       image,
-      isActive: isActive === 'true' || isActive === true
+      isActive: isActive === 'true' || isActive === true,
+      isVeg: isVeg === 'true' || isVeg === true
     });
     res.json(item);
   } catch (error) {
@@ -390,5 +395,34 @@ exports.saveGeneralKnowledge = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to save knowledge content' });
+  }
+};
+
+// --- Reorder Categories and Menu Items Handlers ---
+exports.reorderCategories = async (req, res) => {
+  const { rankings } = req.body;
+  if (!Array.isArray(rankings)) {
+    return res.status(400).json({ error: 'Rankings array is required' });
+  }
+  try {
+    await Menu.updateCategoryRankings(rankings);
+    res.json({ message: 'Categories reordered successfully' });
+  } catch (error) {
+    console.error('Reorder categories error:', error);
+    res.status(500).json({ error: 'Failed to reorder categories' });
+  }
+};
+
+exports.reorderMenuItems = async (req, res) => {
+  const { rankings } = req.body;
+  if (!Array.isArray(rankings)) {
+    return res.status(400).json({ error: 'Rankings array is required' });
+  }
+  try {
+    await Menu.updateMenuItemRankings(rankings);
+    res.json({ message: 'Menu items reordered successfully' });
+  } catch (error) {
+    console.error('Reorder menu items error:', error);
+    res.status(500).json({ error: 'Failed to reorder menu items' });
   }
 };

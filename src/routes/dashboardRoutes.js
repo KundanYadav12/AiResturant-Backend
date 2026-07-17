@@ -14,4 +14,12 @@ router.get('/tables', dashboardController.getTables);
 router.post('/tables', dashboardController.createTable);
 router.delete('/tables/:id', dashboardController.deleteTable);
 
+// AI Waiter & Voice settings
+router.get('/settings', dashboardController.getSettings);
+router.put('/settings', dashboardController.updateSettings);
+
+// AI Provider Settings
+router.get('/settings/ai', dashboardController.getAiProviderSettings);
+router.put('/settings/ai', dashboardController.updateAiProviderSettings);
+
 module.exports = router;

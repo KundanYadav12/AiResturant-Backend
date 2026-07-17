@@ -3,19 +3,24 @@ const router = express.Router();
 const saasController = require('../controllers/saasController');
 const { authenticateToken, requireRole } = require('../middleware/authMiddleware');
 
+// All Super Admin routes require a valid JWT + SUPER_ADMIN role
 router.use(authenticateToken);
 router.use(requireRole(['SUPER_ADMIN']));
 
-// Super Admin platform metrics
+// ── Platform Stats ────────────────────────────────────────────────────────────
 router.get('/stats', saasController.getPlatformStats);
 
-// List all restaurants
-router.get('/restaurants', saasController.getRestaurantsList);
+// ── Restaurant Management ─────────────────────────────────────────────────────
+router.get('/restaurants',                               saasController.getRestaurantsList);
+router.post('/restaurants',                              saasController.createRestaurantAndOwner);
+router.put('/restaurants/:id/subscription',              saasController.updateRestaurantSubscription);
+router.put('/restaurants/:id/ai-settings',                saasController.updateRestaurantAiSettings);
+router.delete('/restaurants/:id',                        saasController.deleteRestaurant);
 
-// Update restaurant subscription plan & status
-router.put('/restaurants/:id/subscription', saasController.updateRestaurantSubscription);
+// ── Owner Password Reset ──────────────────────────────────────────────────────
+router.post('/restaurants/reset-password',               saasController.resetOwnerPassword);
 
-// Create new restaurant and owner from Super Admin portal
-router.post('/restaurants', saasController.createRestaurantAndOwner);
+// ── AI Usage Tracking ─────────────────────────────────────────────────────────
+router.get('/ai-usage',                                  saasController.getAiUsage);
 
 module.exports = router;

@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const menuController = require('../controllers/menuController');
+const stageController = require('../controllers/stageController');
 const { authenticateToken, requireRole } = require('../middleware/authMiddleware');
 
 // Public routes for Customer QR Page (identified by Table Token)
 router.get('/tables/token/:tableToken/categories', menuController.getCategoriesByToken);
 router.get('/tables/token/:tableToken/items', menuController.getMenuItemsByToken);
+router.get('/tables/token/:tableToken/stages', stageController.getStagesByTableToken);
 
 // Existing Legacy Public routes (retained for backward compatibility)
 router.get('/restaurants/:restaurantId/categories', menuController.getCategories);
@@ -17,6 +19,12 @@ router.post(
   authenticateToken,
   requireRole(['OWNER', 'MANAGER']),
   menuController.createCategory
+);
+router.put(
+  '/categories/reorder',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  menuController.reorderCategories
 );
 router.put(
   '/categories/:id',
@@ -38,6 +46,12 @@ router.post(
   requireRole(['OWNER', 'MANAGER']),
   menuController.uploadImage,
   menuController.createMenuItem
+);
+router.put(
+  '/items/reorder',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  menuController.reorderMenuItems
 );
 router.put(
   '/items/:id',
@@ -143,6 +157,38 @@ router.post(
   authenticateToken,
   requireRole(['OWNER', 'MANAGER']),
   menuController.saveGeneralKnowledge
+);
+
+// Owner custom order status stages routes
+router.get(
+  '/restaurants/:restaurantId/stages',
+  authenticateToken,
+  requireRole(['OWNER', 'MANAGER']),
+  stageController.getStages
+);
+router.post(
+  '/restaurants/:restaurantId/stages',
+  authenticateToken,
+  requireRole(['OWNER']),
+  stageController.createStage
+);
+router.put(
+  '/restaurants/:restaurantId/stages/reorder',
+  authenticateToken,
+  requireRole(['OWNER']),
+  stageController.reorderStages
+);
+router.put(
+  '/restaurants/:restaurantId/stages/:stageId',
+  authenticateToken,
+  requireRole(['OWNER']),
+  stageController.updateStage
+);
+router.delete(
+  '/restaurants/:restaurantId/stages/:stageId',
+  authenticateToken,
+  requireRole(['OWNER']),
+  stageController.deleteStage
 );
 
 module.exports = router;
