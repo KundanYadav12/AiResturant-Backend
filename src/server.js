@@ -399,6 +399,11 @@ app.use(cors({
       return callback(null, true);
     }
     
+    // Allow any Netlify subdomains (for preview branch deployments)
+    if (/\.netlify\.app$/.test(origin)) {
+      return callback(null, true);
+    }
+    
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
