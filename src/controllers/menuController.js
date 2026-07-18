@@ -165,7 +165,7 @@ exports.createMenuItem = async (req, res) => {
     return res.status(400).json({ error: 'Category ID, name, and price are required' });
   }
 
-  const image = req.file ? `/uploads/${req.file.filename}` : null;
+  const image = req.file ? `/api/uploads/${req.file.filename}` : null;
 
   try {
     const item = await Menu.createMenuItem({
@@ -193,12 +193,13 @@ exports.updateMenuItem = async (req, res) => {
     return res.status(400).json({ error: 'Category ID, name, and price are required' });
   }
 
-  const image = req.file ? `/uploads/${req.file.filename}` : undefined;
+  const image = req.file ? `/api/uploads/${req.file.filename}` : undefined;
 
   try {
     const oldItem = await Menu.getMenuItemById(id);
     if (image && oldItem && oldItem.image) {
-      const oldPath = path.join(__dirname, '../../', oldItem.image);
+      const filename = path.basename(oldItem.image);
+      const oldPath = path.join(__dirname, '../../uploads', filename);
       if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
       }

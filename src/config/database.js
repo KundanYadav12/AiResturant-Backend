@@ -256,6 +256,14 @@ async function initializeDatabase() {
         } catch (err) {
           console.error('Migration error creating index on orders:', err.message);
         }
+
+        // 9. Update menu item images paths to use `/api/uploads` prefix for Nginx proxying
+        try {
+          await pool.query("UPDATE menu_items SET image = REPLACE(image, '/uploads/', '/api/uploads/') WHERE image LIKE '/uploads/%'");
+          console.log('✅ Auto-Migration: Updated existing menu item image paths to use /api/uploads/ prefix.');
+        } catch (err) {
+          console.error('Migration error updating menu item image paths:', err.message);
+        }
       };
       await migrate();
     } else {
