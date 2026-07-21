@@ -264,6 +264,26 @@ async function initializeDatabase() {
         } catch (err) {
           console.error('Migration error updating menu item image paths:', err.message);
         }
+
+        // 10. Create otp_verifications table
+        try {
+          await pool.query(`
+            CREATE TABLE IF NOT EXISTS otp_verifications (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              email VARCHAR(255) NOT NULL,
+              otp VARCHAR(255) NOT NULL,
+              otp_type VARCHAR(50) NOT NULL,
+              metadata TEXT NULL,
+              attempts INT DEFAULT 0,
+              expires_at TIMESTAMP NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              INDEX idx_otp_email_type (email, otp_type)
+            )
+          `);
+          console.log('✅ Auto-Migration: Verified otp_verifications table.');
+        } catch (err) {
+          console.error('Migration error creating otp_verifications table:', err.message);
+        }
       };
       await migrate();
     } else {

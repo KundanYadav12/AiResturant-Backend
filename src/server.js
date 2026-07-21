@@ -147,8 +147,8 @@ const wss = new WebSocket.Server({ noServer: true });
     }
 
     // 2. Connect to Gemini Generative Service Bidi WebSocket
-    // Using gemini-2.5-flash-native-audio-latest which is the stable Live audio model supporting BidiGenerateContent on v1beta
-    const GEMINI_MODEL = 'models/gemini-2.5-flash-native-audio-latest';
+    // Using gemini-2.5-flash which is the stable Live audio model supporting BidiGenerateContent on v1beta
+    const GEMINI_MODEL = 'models/gemini-2.5-flash';
     const GEMINI_WSS_URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${resolvedKey}`;
 
     console.log(`[Gemini Proxy] 🔗 Connecting to Gemini upstream: ${GEMINI_MODEL}`);

@@ -67,6 +67,22 @@ router.delete(
   menuController.deleteMenuItem
 );
 
+// Protected Menu Import routes (Only OWNER)
+router.post(
+  '/import/upload',
+  authenticateToken,
+  requireRole(['OWNER']),
+  menuController.uploadScanFile,
+  menuController.importMenuImage
+);
+
+router.post(
+  '/import/confirm',
+  authenticateToken,
+  requireRole(['OWNER']),
+  menuController.confirmImportMenu
+);
+
 // Protected Ingredients & Allergens routes (Owner/Manager)
 router.get(
   '/ingredients',
@@ -190,5 +206,9 @@ router.delete(
   requireRole(['OWNER']),
   stageController.deleteStage
 );
+
+// Owner staff management routes
+router.get('/staff', authenticateToken, requireRole(['OWNER']), menuController.getStaff);
+router.delete('/staff/:id', authenticateToken, requireRole(['OWNER']), menuController.deleteStaff);
 
 module.exports = router;

@@ -28,6 +28,51 @@ async function getGeminiClientForRestaurant(restaurantId) {
   return new GoogleGenerativeAI(apiKey);
 }
 
+/**
+ * Helper to call Gemini API with automatic model fallbacks & retries for 503 Service Unavailable / 429 High Demand errors.
+ */
+async function callGeminiWithFallback(genAI, systemPrompt, geminiContents, voiceMode) {
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest'];
+  let lastError = null;
+
+  for (const modelName of modelsToTry) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const geminiModel = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: systemPrompt
+        });
+
+        const geminiResp = await geminiModel.generateContent({
+          contents: geminiContents,
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+            maxOutputTokens: voiceMode ? 300 : 1024,
+          }
+        });
+
+        console.log(`[aiService] ✅ Gemini responded successfully using model "${modelName}" (attempt ${attempt})`);
+        return geminiResp.response.text();
+      } catch (err) {
+        lastError = err;
+        const errStr = String(err.message || err);
+        const isTemporaryError = errStr.includes('503') || errStr.includes('429') || errStr.toLowerCase().includes('high demand') || errStr.toLowerCase().includes('temporarily') || errStr.toLowerCase().includes('unavailable');
+
+        console.warn(`[aiService] ⚠️ Gemini call failed on model "${modelName}" (attempt ${attempt}/2): ${errStr}`);
+
+        if (isTemporaryError && attempt === 1) {
+          await new Promise(res => setTimeout(res, 600));
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('All Gemini models failed due to high demand or service unavailability.');
+}
+
 // ── Voice-mode aware prompt builder ──────────────────────────────────────────
 
 function buildSystemPrompt(formattedMenu, formattedFAQs, knowledgeBase, voiceMode = false) {
@@ -83,29 +128,46 @@ function cleanAndParseJSON(text) {
   if (!text) return null;
   let cleanText = text.trim();
   
-  // Remove markdown code block wrappers if any
-  if (cleanText.startsWith('```')) {
-    cleanText = cleanText.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/, '');
+  // Remove markdown code block wrappers
+  cleanText = cleanText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+
+  // Extract JSON object or array between first '{' or '[' and last '}' or ']'
+  const firstBrace = cleanText.indexOf('{');
+  const firstBracket = cleanText.indexOf('[');
+  let startIdx = -1;
+
+  if (firstBrace !== -1 && firstBracket !== -1) {
+    startIdx = Math.min(firstBrace, firstBracket);
+  } else if (firstBrace !== -1) {
+    startIdx = firstBrace;
+  } else if (firstBracket !== -1) {
+    startIdx = firstBracket;
   }
-  cleanText = cleanText.trim();
-  
+
+  const lastBrace = cleanText.lastIndexOf('}');
+  const lastBracket = cleanText.lastIndexOf(']');
+  const endIdx = Math.max(lastBrace, lastBracket);
+
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    cleanText = cleanText.substring(startIdx, endIdx + 1);
+  }
+
   try {
     return JSON.parse(cleanText);
   } catch (err) {
     console.error('[aiService] Standard JSON.parse failed. Attempting cleanup... Text:', cleanText);
     
-    // Attempt minor cleanups:
-    // Remove trailing commas before closing braces/brackets
     let fixed = cleanText
       .replace(/,\s*([\]}])/g, '$1')
-      .replace(/\n/g, ' ')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
       .trim();
       
     try {
       return JSON.parse(fixed);
     } catch (err2) {
       console.error('[aiService] Cleanup JSON parse also failed:', err2.message);
-      throw err; // throw original error
+      throw err;
     }
   }
 }
@@ -204,27 +266,12 @@ async function processCustomerMessage(restaurantId, customerMessage, currentCart
       genAI = new GoogleGenerativeAI(platformKey);
     }
     
-    // Utilize official systemInstruction configuration to enable API-level caching and optimize speed
-    const gemini = genAI.getGenerativeModel({ 
-      model: 'gemini-flash-latest',
-      systemInstruction: systemPrompt
-    });
-
     const geminiContents = [
       ...cleanHistory,
       { role: 'user', parts: [{ text: userTurnContent }] }
     ];
 
-    const geminiResp = await gemini.generateContent({
-      contents: geminiContents,
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-        maxOutputTokens: voiceMode ? 300 : 1024,
-      }
-    });
-
-    const geminiText = geminiResp.response.text();
+    const geminiText = await callGeminiWithFallback(genAI, systemPrompt, geminiContents, voiceMode);
     const result = cleanAndParseJSON(geminiText);
     console.log('AI: Gemini responded successfully (voiceMode:', voiceMode, ')');
 
@@ -383,4 +430,4 @@ ${knowledgeBase}`;
   }
 }
 
-module.exports = { processCustomerMessage, getVoiceAgentContext };
+module.exports = { processCustomerMessage, getVoiceAgentContext, cleanAndParseJSON };
