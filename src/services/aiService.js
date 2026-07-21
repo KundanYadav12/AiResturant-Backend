@@ -28,15 +28,16 @@ async function getGeminiClientForRestaurant(restaurantId) {
   return new GoogleGenerativeAI(apiKey);
 }
 
+const { GEMINI_MODEL } = require('../config/aiConfig');
+
 /**
- * Helper to call Gemini API with automatic model fallbacks & retries for 503 Service Unavailable / 429 High Demand errors.
+ * Helper to call Gemini API with automatic retries for 503 Service Unavailable / 429 High Demand errors.
  */
 async function callGeminiWithFallback(genAI, systemPrompt, geminiContents, voiceMode) {
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest'];
+  const modelName = GEMINI_MODEL;
   let lastError = null;
 
-  for (const modelName of modelsToTry) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const geminiModel = genAI.getGenerativeModel({
           model: modelName,
@@ -68,9 +69,8 @@ async function callGeminiWithFallback(genAI, systemPrompt, geminiContents, voice
         }
       }
     }
-  }
 
-  throw lastError || new Error('All Gemini models failed due to high demand or service unavailability.');
+  throw lastError || new Error(`Gemini model ${GEMINI_MODEL} failed due to high demand or service unavailability.`);
 }
 
 // ── Voice-mode aware prompt builder ──────────────────────────────────────────

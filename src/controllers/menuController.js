@@ -4,6 +4,7 @@ const Knowledge = require('../models/Knowledge');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { GEMINI_MODEL } = require('../config/aiConfig');
 
 // Configure Multer for image uploads
 const storage = multer.diskStorage({
@@ -556,25 +557,21 @@ exports.importMenuImage = async (req, res) => {
       }
     `;
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-flash-latest'];
     let responseText = null;
     let lastErr = null;
 
-    for (const modelName of modelsToTry) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent([prompt, filePart]);
-        responseText = result.response.text();
-        console.log(`[Menu Scanner] ✅ Successfully scanned menu using model "${modelName}"`);
-        break;
-      } catch (err) {
-        lastErr = err;
-        console.warn(`[Menu Scanner] ⚠️ Model "${modelName}" failed during scan: ${err.message || err}`);
-      }
+    try {
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+      const result = await model.generateContent([prompt, filePart]);
+      responseText = result.response.text();
+      console.log(`[Menu Scanner] ✅ Successfully scanned menu using model "${GEMINI_MODEL}"`);
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[Menu Scanner] ⚠️ Model "${GEMINI_MODEL}" failed during scan: ${err.message || err}`);
     }
 
     if (!responseText) {
-      throw lastErr || new Error('All Gemini models failed to process the menu scanner file.');
+      throw lastErr || new Error(`Gemini model ${GEMINI_MODEL} failed to process the menu scanner file.`);
     }
 
     const { cleanAndParseJSON } = require('../services/aiService');
